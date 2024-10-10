@@ -581,6 +581,10 @@ ompi_mtl_ofi_component_init(bool enable_progress_threads,
     int universe_size;
     char *univ_size_str;
 
+    // CHANGED from Jianxin's patch
+    char *directed_recv_str;
+    int directed_recv = 1;
+
     opal_output_verbose(1, opal_common_ofi.output,
                         "%s:%d: mtl:ofi:provider_include = \"%s\"\n",
                         __FILE__, __LINE__, *opal_common_ofi.prov_include);
@@ -640,13 +644,24 @@ ompi_mtl_ofi_component_init(bool enable_progress_threads,
     }
 #endif
 
+    // CHANGED: patch from Jianxin, add new env, for working with ofi-ucx
+    directed_recv_str = getenv("OMPI_OFI_DIRECTED_RECV");
+    if (directed_recv_str)
+        directed_recv = atoi(directed_recv_str);
+
 no_hmem:
 
     /* Make sure to get a RDM provider that can do the tagged matching
        interface and local communication and remote communication. */
     hints->mode               = FI_CONTEXT | FI_CONTEXT2;
     hints->ep_attr->type      = FI_EP_RDM;
-    hints->caps               |= FI_MSG | FI_TAGGED | FI_LOCAL_COMM | FI_REMOTE_COMM | FI_DIRECTED_RECV;
+
+    // CHANGED: patch from Jianxin, for working with ofi-ucx
+    // hints->caps               |= FI_MSG | FI_TAGGED | FI_LOCAL_COMM | FI_REMOTE_COMM | FI_DIRECTED_RECV;
+    hints->caps               |= FI_MSG | FI_TAGGED | FI_LOCAL_COMM | FI_REMOTE_COMM ;
+    if (directed_recv)
+         hints->caps          |= FI_DIRECTED_RECV;
+
     hints->tx_attr->msg_order = FI_ORDER_SAS;
     hints->rx_attr->msg_order = FI_ORDER_SAS;
     hints->rx_attr->op_flags  = FI_COMPLETION;
@@ -823,6 +838,12 @@ select_prov:
     } else {
         *accelerator_support = true;
         ompi_mtl_ofi.hmem_needs_reg = true;
+
+        // CHANGED disable this to avoid registering mem every time
+        if (prov->caps & FI_HMEM)
+            ompi_mtl_ofi.hmem_needs_reg = false;
+
+
         /*
          * Workaround for the fact that the CXI provider actually doesn't need for accelerator memory to be registered
          * for local buffers, but if one does do so using fi_mr_regattr, one actually needs to manage the
